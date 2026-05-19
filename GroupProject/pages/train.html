@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Train Models — DataForge</title>
+  <link rel="stylesheet" href="../css/main.css"/>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    .model-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-bottom: 28px; }
+    .model-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      position: relative;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .model-card:hover { border-color: var(--accent2); }
+    .model-card.selected { border-color: var(--accent); background: rgba(74,240,176,0.05); }
+    .model-card input[type=checkbox] { position: absolute; top: 14px; right: 14px; width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent); }
+    .model-name { font-family: var(--font-head); font-size: 1rem; font-weight: 700; margin-bottom: 6px; }
+    .model-desc { color: var(--text-muted); font-size: 0.82rem; line-height: 1.5; }
+    .model-badge { margin-top: 10px; }
+
+    .result-bar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+    .result-name { width: 180px; font-size: 0.88rem; font-weight: 600; flex-shrink: 0; }
+    .result-bar-fill {
+      height: 26px;
+      border-radius: 6px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #0b0f1a;
+      min-width: 50px;
+      transition: width 0.6s ease;
+    }
+    .result-best { border: 2px solid var(--accent); border-radius: 12px; padding: 16px 20px; margin-bottom: 12px; background: rgba(74,240,176,0.05); }
+
+    canvas { border-radius: 10px; }
+
+    .cm-table { border-collapse: collapse; }
+    .cm-table td, .cm-table th { padding: 8px 14px; text-align: center; border: 1px solid var(--border); font-size: 0.85rem; }
+    .cm-table th { background: var(--surface2); }
+
+    .training-overlay {
+      position: fixed; inset: 0;
+      background: rgba(11,15,26,0.85);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 200;
+      backdrop-filter: blur(6px);
+    }
+    .training-spinner {
+      width: 60px; height: 60px;
+      border: 4px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 20px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <a href="../index.html" class="logo">⬡ DataForge</a>
+    <div class="nav-links">
+      <a href="../index.html">Home</a>
+      <a href="upload.html">Upload</a>
+      <a href="clean.html">Clean</a>
+      <a href="train.html" class="active">Train</a>
+      <a href="predict.html">Predict</a>
+    </div>
+  </nav>
+
+  <div id="no-data" class="empty-state" style="display:none;">
+    <div class="icon">📭</div>
+    <h3>No Data Loaded</h3>
+    <p>Please upload and clean your data first.</p>
+    <a href="upload.html" class="btn btn-green">Go to Upload</a>
+  </div>
+
+  <div class="page-container" id="main-content">
+    <div class="page-header">
+      <h1>🤖 Train ML Models</h1>
+      <p>Select your target column and features, pick models, and train — we'll compare them automatically.</p>
+    </div>
+
+    <!-- CONFIG -->
+    <div class="card">
+      <div class="card-title">⚙️ Training Configuration</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Target Column (what to predict)</label>
+          <select id="target-col"></select>
+        </div>
+        <div class="form-group">
+          <label>Problem Type</label>
+          <select id="problem-type">
+            <option value="auto">Auto Detect</option>
+            <option value="classification">Classification</option>
+            <option value="regression">Regression</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Test Split (%)</label>
+          <select id="test-split">
+            <option value="0.2">20% test / 80% train</option>
+            <option value="0.3">30% test / 70% train</option>
+            <option value="0.1">10% test / 90% train</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Feature Columns (hold Ctrl/Cmd to select multiple, or use Select All)</label>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <button class="btn btn-outline" style="padding:6px 12px;font-size:.8rem;" onclick="selectAllFeatures()">Select All</button>
+          <button class="btn btn-outline" style="padding:6px 12px;font-size:.8rem;" onclick="deselectAllFeatures()">Deselect All</button>
+        </div>
+        <select id="feature-cols" multiple style="width:100%;height:130px;"></select>
+      </div>
+    </div>
+
+    <!-- MODEL SELECTION -->
+    <div class="card">
+      <div class="card-title">🧠 Select Models to Train</div>
+      <div class="model-cards" id="model-cards">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+
+    <button class="btn btn-green" style="font-size:1rem;padding:14px 32px;margin-bottom:28px;" onclick="startTraining()">🚀 Train Selected Models</button>
+
+    <!-- RESULTS -->
+    <div id="results-section" style="display:none;">
+      <div class="card">
+        <div class="card-title">🏆 Model Comparison</div>
+        <div id="best-model"></div>
+        <div id="accuracy-bars"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📊 Accuracy Chart</div>
+        <canvas id="accuracy-chart" height="80"></canvas>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📈 Detailed Metrics</div>
+        <div id="metrics-table"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🔥 Feature Importance (Decision Tree / Random Forest)</div>
+        <canvas id="feature-chart" height="100"></canvas>
+        <div id="feature-fallback" style="display:none;color:var(--text-muted);font-size:.88rem;padding:20px;">Feature importance not available for selected models.</div>
+      </div>
+
+      <div class="btn-group">
+        <a href="predict.html" class="btn btn-green">🎯 Make Predictions →</a>
+        <button class="btn btn-purple" onclick="downloadReport()">⬇ Download Report (JSON)</button>
+        <button class="btn btn-outline" onclick="downloadChartPng()">⬇ Download Chart (PNG)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Training Overlay -->
+  <div id="training-overlay" class="training-overlay" style="display:none;">
+    <div class="training-spinner"></div>
+    <div style="font-family:var(--font-head);font-size:1.3rem;margin-bottom:8px;">Training Models...</div>
+    <div id="training-status" style="color:var(--text-muted);font-size:.9rem;"></div>
+  </div>
+
+  <script src="../js/storage.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <script>
+    let headers = [], rows = [], trainResults = null;
+    let accChart = null, featChart = null;
+
+    const MODELS = [
+      { id: 'dt', name: 'Decision Tree', desc: 'Splits data on feature rules. Fast, interpretable. Good for small data.', tag: 'Beginner-Friendly', type: 'both' },
+      { id: 'rf', name: 'Random Forest', desc: 'Combines many decision trees. Robust, accurate, handles noise well.', tag: 'Recommended', type: 'both' },
+      { id: 'lr', name: 'Logistic Regression', desc: 'Statistical model for binary or multi-class classification problems.', tag: 'Classification', type: 'classification' },
+      { id: 'linreg', name: 'Linear Regression', desc: 'Predicts continuous numeric values using a linear equation.', tag: 'Regression', type: 'regression' },
+      { id: 'knn', name: 'K-Nearest Neighbors', desc: 'Classifies based on closest training examples. Simple and intuitive.', tag: 'Easy to Understand', type: 'both' },
+      { id: 'nb', name: 'Naive Bayes', desc: 'Probabilistic classifier. Very fast and good for large feature sets.', tag: 'Fast', type: 'classification' },
+      { id: 'svm', name: 'Support Vector Machine', desc: 'Finds optimal boundary between classes. Excellent for high-dimensional data.', tag: 'High Accuracy', type: 'classification' },
+    ];
+
+    function init() {
+      const h = DataStore.load('cleanHeaders') || DataStore.load('rawHeaders');
+      const r = DataStore.load('cleanRows') || DataStore.load('rawRows');
+      if (!h || !r) { document.getElementById('no-data').style.display = 'flex'; document.getElementById('main-content').style.display = 'none'; return; }
+      headers = h; rows = r;
+
+      const targetSel = document.getElementById('target-col');
+      const featureSel = document.getElementById('feature-cols');
+      headers.forEach(h => {
+        targetSel.innerHTML += `<option value="${h}">${h}</option>`;
+        featureSel.innerHTML += `<option value="${h}" selected>${h}</option>`;
+      });
+      // Default target to last col
+      targetSel.value = headers[headers.length - 1];
+
+      renderModelCards();
+      targetSel.addEventListener('change', updateFeatureOptions);
+      updateFeatureOptions();
+
+      const saved = DataStore.load('trainResults');
+      if (saved) { trainResults = saved; showResults(trainResults); }
+    }
+
+    function updateFeatureOptions() {
+      const target = document.getElementById('target-col').value;
+      const featureSel = document.getElementById('feature-cols');
+      [...featureSel.options].forEach(o => {
+        o.disabled = o.value === target;
+        if (o.value === target) o.selected = false;
+      });
+    }
+
+    function selectAllFeatures() {
+      const target = document.getElementById('target-col').value;
+      [...document.getElementById('feature-cols').options].forEach(o => { if (o.value !== target) o.selected = true; });
+    }
+    function deselectAllFeatures() {
+      [...document.getElementById('feature-cols').options].forEach(o => o.selected = false);
+    }
+
+    function renderModelCards() {
+      const container = document.getElementById('model-cards');
+      container.innerHTML = MODELS.map(m => `
+        <div class="model-card selected" onclick="toggleModel(this, '${m.id}')">
+          <input type="checkbox" id="m_${m.id}" value="${m.id}" checked onclick="event.stopPropagation()">
+          <div class="model-name">${m.name}</div>
+          <div class="model-desc">${m.desc}</div>
+          <div class="model-badge"><span class="chip chip-purple">${m.tag}</span></div>
+        </div>
+      `).join('');
+    }
+
+    function toggleModel(card, id) {
+      const cb = document.getElementById('m_' + id);
+      cb.checked = !cb.checked;
+      card.classList.toggle('selected', cb.checked);
+    }
+
+    async function startTraining() {
+      const target = document.getElementById('target-col').value;
+      const featureOpts = [...document.getElementById('feature-cols').options];
+      const features = featureOpts.filter(o => o.selected && !o.disabled).map(o => o.value);
+      if (!features.length) { alert('Select at least one feature column'); return; }
+
+      const selectedModels = MODELS.filter(m => document.getElementById('m_' + m.id)?.checked);
+      if (!selectedModels.length) { alert('Select at least one model to train'); return; }
+
+      const testSplit = parseFloat(document.getElementById('test-split').value);
+      const problemType = document.getElementById('problem-type').value;
+
+      document.getElementById('training-overlay').style.display = 'flex';
+
+      await new Promise(r => setTimeout(r, 50));
+
+      try {
+        const results = await trainModels(rows, features, target, selectedModels, testSplit, problemType);
+        DataStore.save('trainResults', results);
+        DataStore.save('trainFeatures', features);
+        DataStore.save('trainTarget', target);
+        DataStore.save('problemType', results.problemType);
+        trainResults = results;
+        showResults(results);
+      } catch(e) {
+        alert('Training error: ' + e.message);
+        console.error(e);
+      }
+
+      document.getElementById('training-overlay').style.display = 'none';
+    }
+
+    // ======================= ML ENGINE (Browser JS) =======================
+    async function trainModels(data, features, target, selectedModels, testSplit, forcedType) {
+      // Prepare numeric data
+      const X = data.map(r => features.map(f => parseFloat(r[f]) || 0));
+      const rawY = data.map(r => r[target]);
+      const uniqueLabels = [...new Set(rawY)].sort();
+      const isRegression = forcedType === 'regression' || (forcedType === 'auto' && uniqueLabels.filter(v => !isNaN(Number(v))).length === uniqueLabels.length && uniqueLabels.length > 10);
+      const problemType = isRegression ? 'regression' : 'classification';
+      const Y = isRegression ? rawY.map(v => parseFloat(v) || 0) : rawY.map(v => uniqueLabels.indexOf(v));
+
+      // Train/test split (simple sequential split)
+      const splitIdx = Math.floor(data.length * (1 - testSplit));
+      const Xtrain = X.slice(0, splitIdx), Xtest = X.slice(splitIdx);
+      const Ytrain = Y.slice(0, splitIdx), Ytest = Y.slice(splitIdx);
+
+      const results = { models: [], features, target, problemType, uniqueLabels, splitIdx, total: data.length };
+
+      for (const modelDef of selectedModels) {
+        document.getElementById('training-status').textContent = `Training ${modelDef.name}...`;
+        await new Promise(r => setTimeout(r, 10));
+
+        let preds, score, featureImportance = null;
+        try {
+          if (modelDef.id === 'dt') {
+            const tree = buildDecisionTree(Xtrain, Ytrain, features, 5, problemType);
+            preds = Xtest.map(x => predictDT(tree, x));
+            featureImportance = computeDTImportance(tree, features);
+            score = problemType === 'regression' ? r2Score(Ytest, preds) : accuracy(Ytest, preds);
+          } else if (modelDef.id === 'rf') {
+            const forest = buildRandomForest(Xtrain, Ytrain, features, 8, 4, problemType);
+            preds = Xtest.map(x => predictRF(forest, x, problemType, uniqueLabels.length));
+            featureImportance = computeRFImportance(forest, features);
+            score = problemType === 'regression' ? r2Score(Ytest, preds) : accuracy(Ytest, preds);
+          } else if (modelDef.id === 'lr') {
+            const model = trainLogisticRegression(Xtrain, Ytrain, uniqueLabels.length);
+            preds = Xtest.map(x => predictLR(model, x));
+            score = accuracy(Ytest, preds);
+          } else if (modelDef.id === 'linreg') {
+            const model = trainLinearRegression(Xtrain, Ytrain);
+            preds = Xtest.map(x => predictLinReg(model, x));
+            score = r2Score(Ytest, preds);
+          } else if (modelDef.id === 'knn') {
+            preds = knnPredict(Xtrain, Ytrain, Xtest, 5, problemType);
+            score = problemType === 'regression' ? r2Score(Ytest, preds) : accuracy(Ytest, preds);
+          } else if (modelDef.id === 'nb') {
+            const model = trainNaiveBayes(Xtrain, Ytrain, uniqueLabels.length);
+            preds = Xtest.map(x => predictNB(model, x, uniqueLabels.length));
+            score = accuracy(Ytest, preds);
+          } else if (modelDef.id === 'svm') {
+            const model = trainLinearSVM(Xtrain, Ytrain, uniqueLabels.length);
+            preds = Xtest.map(x => predictSVM(model, x, uniqueLabels.length));
+            score = accuracy(Ytest, preds);
+          }
+
+          const metrics = computeMetrics(Ytest, preds, uniqueLabels, problemType);
+          results.models.push({ id: modelDef.id, name: modelDef.name, score: +score.toFixed(4), preds, metrics, featureImportance });
+        } catch(err) {
+          results.models.push({ id: modelDef.id, name: modelDef.name, score: 0, preds: [], metrics: {}, error: err.message });
+        }
+      }
+
+      results.models.sort((a, b) => b.score - a.score);
+      return results;
+    }
+
+    // ======================== DECISION TREE ========================
+    function buildDecisionTree(X, Y, features, maxDepth, type, depth = 0) {
+      if (depth >= maxDepth || X.length < 5) return leafNode(Y, type);
+      const { bestFeat, bestThresh, bestGain } = findBestSplit(X, Y, type);
+      if (bestGain <= 0) return leafNode(Y, type);
+      const leftIdx = X.map((x, i) => x[bestFeat] <= bestThresh ? i : -1).filter(i => i >= 0);
+      const rightIdx = X.map((x, i) => x[bestFeat] > bestThresh ? i : -1).filter(i => i >= 0);
+      if (!leftIdx.length || !rightIdx.length) return leafNode(Y, type);
+      return {
+        feat: bestFeat, thresh: bestThresh, gain: bestGain,
+        left: buildDecisionTree(leftIdx.map(i => X[i]), leftIdx.map(i => Y[i]), features, maxDepth, type, depth + 1),
+        right: buildDecisionTree(rightIdx.map(i => X[i]), rightIdx.map(i => Y[i]), features, maxDepth, type, depth + 1)
+      };
+    }
+
+    function leafNode(Y, type) {
+      if (type === 'regression') return { leaf: true, val: Y.reduce((a,b)=>a+b,0)/Y.length };
+      const counts = {};
+      Y.forEach(y => counts[y] = (counts[y]||0)+1);
+      return { leaf: true, val: +Object.entries(counts).sort((a,b)=>b[1]-a[1])[0][0] };
+    }
+
+    function findBestSplit(X, Y, type) {
+      let bestFeat = 0, bestThresh = 0, bestGain = -Infinity;
+      const nFeat = X[0].length;
+      for (let f = 0; f < nFeat; f++) {
+        const vals = [...new Set(X.map(x => x[f]))].sort((a,b)=>a-b);
+        for (let i = 0; i < vals.length - 1; i++) {
+          const thresh = (vals[i] + vals[i+1]) / 2;
+          const leftY = Y.filter((_, j) => X[j][f] <= thresh);
+          const rightY = Y.filter((_, j) => X[j][f] > thresh);
+          if (!leftY.length || !rightY.length) continue;
+          const gain = impurity(Y, type) - (leftY.length/Y.length)*impurity(leftY, type) - (rightY.length/Y.length)*impurity(rightY, type);
+          if (gain > bestGain) { bestGain = gain; bestFeat = f; bestThresh = thresh; }
+        }
+      }
+      return { bestFeat, bestThresh, bestGain };
+    }
+
+    function impurity(Y, type) {
+      if (type === 'regression') {
+        const m = Y.reduce((a,b)=>a+b,0)/Y.length;
+        return Y.reduce((s,y)=>s+(y-m)**2,0)/Y.length;
+      }
+      const counts = {};
+      Y.forEach(y => counts[y]=(counts[y]||0)+1);
+      return 1 - Object.values(counts).reduce((s,c)=>s+(c/Y.length)**2, 0);
+    }
+
+    function predictDT(node, x) {
+      if (node.leaf) return node.val;
+      return x[node.feat] <= node.thresh ? predictDT(node.left, x) : predictDT(node.right, x);
+    }
+
+    function computeDTImportance(node, features) {
+      const imp = new Array(features.length).fill(0);
+      function traverse(n) {
+        if (!n || n.leaf) return;
+        imp[n.feat] += n.gain;
+        traverse(n.left); traverse(n.right);
+      }
+      traverse(node);
+      const total = imp.reduce((a,b)=>a+b,0) || 1;
+      return imp.map(v => +(v/total).toFixed(4));
+    }
+
+    // ======================== RANDOM FOREST ========================
+    function buildRandomForest(X, Y, features, nTrees, maxDepth, type) {
+      const trees = [];
+      for (let t = 0; t < nTrees; t++) {
+        const idx = Array.from({length: X.length}, () => Math.floor(Math.random() * X.length));
+        trees.push(buildDecisionTree(idx.map(i => X[i]), idx.map(i => Y[i]), features, maxDepth, type));
+      }
+      return trees;
+    }
+
+    function predictRF(trees, x, type, nClasses) {
+      const preds = trees.map(t => predictDT(t, x));
+      if (type === 'regression') return preds.reduce((a,b)=>a+b,0)/preds.length;
+      const votes = {};
+      preds.forEach(p => votes[p]=(votes[p]||0)+1);
+      return +Object.entries(votes).sort((a,b)=>b[1]-a[1])[0][0];
+    }
+
+    function computeRFImportance(forest, features) {
+      const total = new Array(features.length).fill(0);
+      forest.forEach(tree => {
+        const imp = computeDTImportance(tree, features);
+        imp.forEach((v, i) => total[i] += v);
+      });
+      const sum = total.reduce((a,b)=>a+b,0) || 1;
+      return total.map(v => +(v/sum).toFixed(4));
+    }
+
+    // ======================== LOGISTIC REGRESSION ========================
+    function trainLogisticRegression(X, Y, nClasses) {
+      const nFeat = X[0].length;
+      const W = Array.from({length: nClasses}, () => new Array(nFeat).fill(0));
+      const b = new Array(nClasses).fill(0);
+      const lr = 0.01, epochs = 100;
+      for (let e = 0; e < epochs; e++) {
+        X.forEach((x, i) => {
+          const logits = W.map((w, c) => w.reduce((s, wj, j) => s + wj * x[j], b[c]));
+          const maxL = Math.max(...logits);
+          const exps = logits.map(l => Math.exp(l - maxL));
+          const sumExp = exps.reduce((a,b)=>a+b,0);
+          const probs = exps.map(e => e / sumExp);
+          W.forEach((w, c) => {
+            const err = probs[c] - (Y[i] === c ? 1 : 0);
+            w.forEach((_, j) => w[j] -= lr * err * x[j]);
+            b[c] -= lr * err;
+          });
+        });
+      }
+      return { W, b };
+    }
+
+    function predictLR({ W, b }, x) {
+      const logits = W.map((w, c) => w.reduce((s, wj, j) => s + wj * x[j], b[c]));
+      return logits.indexOf(Math.max(...logits));
+    }
+
+    // ======================== LINEAR REGRESSION ========================
+    function trainLinearRegression(X, Y) {
+      const nFeat = X[0].length;
+      const w = new Array(nFeat).fill(0), b = [0];
+      const lr = 0.001, epochs = 200;
+      // Normalize
+      const xMean = X[0].map((_, j) => X.reduce((s,x)=>s+x[j],0)/X.length);
+      const xStd = X[0].map((_, j) => { const m=xMean[j]; return Math.sqrt(X.reduce((s,x)=>s+(x[j]-m)**2,0)/X.length)||1; });
+      const Xn = X.map(x => x.map((v,j) => (v-xMean[j])/xStd[j]));
+      for (let e = 0; e < epochs; e++) {
+        Xn.forEach((x, i) => {
+          const pred = x.reduce((s,xj,j) => s+xj*w[j], b[0]);
+          const err = pred - Y[i];
+          w.forEach((_, j) => w[j] -= lr * err * x[j]);
+          b[0] -= lr * err;
+        });
+      }
+      return { w, b: b[0], xMean, xStd };
+    }
+
+    function predictLinReg({ w, b, xMean, xStd }, x) {
+      const xn = x.map((v, j) => (v - xMean[j]) / xStd[j]);
+      return xn.reduce((s, xj, j) => s + xj * w[j], b);
+    }
+
+    // ======================== KNN ========================
+    function knnPredict(Xtrain, Ytrain, Xtest, k, type) {
+      return Xtest.map(xq => {
+        const dists = Xtrain.map((xt, i) => ({ d: Math.sqrt(xt.reduce((s,v,j)=>s+(v-xq[j])**2,0)), i }));
+        dists.sort((a,b)=>a.d-b.d);
+        const neighbors = dists.slice(0, k).map(d => Ytrain[d.i]);
+        if (type === 'regression') return neighbors.reduce((a,b)=>a+b,0)/neighbors.length;
+        const votes = {};
+        neighbors.forEach(n => votes[n]=(votes[n]||0)+1);
+        return +Object.entries(votes).sort((a,b)=>b[1]-a[1])[0][0];
+      });
+    }
+
+    // ======================== NAIVE BAYES ========================
+    function trainNaiveBayes(X, Y, nClasses) {
+      const classCounts = new Array(nClasses).fill(0);
+      const featureMeans = Array.from({length: nClasses}, () => new Array(X[0].length).fill(0));
+      const featureVars = Array.from({length: nClasses}, () => new Array(X[0].length).fill(1));
+      Y.forEach((y, i) => { classCounts[y]++; X[i].forEach((v,j) => featureMeans[y][j] += v); });
+      featureMeans.forEach((m, c) => m.forEach((_, j) => m[j] /= classCounts[c]||1));
+      Y.forEach((y, i) => X[i].forEach((v,j) => featureVars[y][j] += (v - featureMeans[y][j])**2));
+      featureVars.forEach((v, c) => v.forEach((_, j) => v[j] = v[j] / (classCounts[c]||1) + 1e-9));
+      return { classCounts, featureMeans, featureVars, total: Y.length };
+    }
+
+    function predictNB({ classCounts, featureMeans, featureVars, total }, x, nClasses) {
+      const scores = [];
+      for (let c = 0; c < nClasses; c++) {
+        let logP = Math.log(classCounts[c] / total);
+        x.forEach((v,j) => { const mu=featureMeans[c][j], sig2=featureVars[c][j]; logP -= 0.5*Math.log(2*Math.PI*sig2) + (v-mu)**2/(2*sig2); });
+        scores.push(logP);
+      }
+      return scores.indexOf(Math.max(...scores));
+    }
+
+    // ======================== LINEAR SVM ========================
+    function trainLinearSVM(X, Y, nClasses) {
+      const nFeat = X[0].length;
+      const W = Array.from({length: nClasses}, () => new Array(nFeat).fill(0));
+      const b = new Array(nClasses).fill(0);
+      const lr = 0.01, C = 1, epochs = 100;
+      for (let e = 0; e < epochs; e++) {
+        X.forEach((x, i) => {
+          W.forEach((w, c) => {
+            const target = Y[i] === c ? 1 : -1;
+            const score = w.reduce((s, wj, j) => s + wj * x[j], b[c]);
+            if (target * score < 1) {
+              w.forEach((_, j) => { w[j] = w[j] * (1 - lr) + lr * C * target * x[j]; });
+              b[c] += lr * C * target;
+            } else {
+              w.forEach((_, j) => w[j] *= (1 - lr));
+            }
+          });
+        });
+      }
+      return { W, b };
+    }
+
+    function predictSVM({ W, b }, x, nClasses) {
+      const scores = W.map((w, c) => w.reduce((s, wj, j) => s + wj * x[j], b[c]));
+      return scores.indexOf(Math.max(...scores));
+    }
+
+    // ======================== METRICS ========================
+    function accuracy(actual, predicted) {
+      const correct = actual.filter((v, i) => Math.round(predicted[i]) === v).length;
+      return correct / actual.length;
+    }
+
+    function r2Score(actual, predicted) {
+      const mean = actual.reduce((a,b)=>a+b,0)/actual.length;
+      const ssTot = actual.reduce((s,y)=>s+(y-mean)**2,0);
+      const ssRes = actual.reduce((s,y,i)=>s+(y-predicted[i])**2,0);
+      return ssTot === 0 ? 0 : 1 - ssRes/ssTot;
+    }
+
+    function computeMetrics(actual, predicted, labels, type) {
+      if (type === 'regression') {
+        const mse = actual.reduce((s,y,i)=>s+(y-predicted[i])**2,0)/actual.length;
+        return { mse: +mse.toFixed(4), rmse: +Math.sqrt(mse).toFixed(4), r2: +r2Score(actual, predicted).toFixed(4) };
+      }
+      const acc = accuracy(actual, predicted);
+      // Macro precision/recall for each class
+      const nC = labels.length;
+      let precSum = 0, recSum = 0;
+      for (let c = 0; c < nC; c++) {
+        const tp = actual.filter((v,i)=>v===c&&Math.round(predicted[i])===c).length;
+        const fp = actual.filter((v,i)=>v!==c&&Math.round(predicted[i])===c).length;
+        const fn = actual.filter((v,i)=>v===c&&Math.round(predicted[i])!==c).length;
+        precSum += tp/(tp+fp||1); recSum += tp/(tp+fn||1);
+      }
+      const prec = precSum/nC, rec = recSum/nC;
+      const f1 = 2*prec*rec/(prec+rec||1);
+      return { accuracy: +acc.toFixed(4), precision: +prec.toFixed(4), recall: +rec.toFixed(4), f1: +f1.toFixed(4) };
+    }
+
+    // ======================== DISPLAY ========================
+    function showResults(results) {
+      document.getElementById('results-section').style.display = 'block';
+      const best = results.models[0];
+
+      // Best model banner
+      const isReg = results.problemType === 'regression';
+      document.getElementById('best-model').innerHTML = `
+        <div class="result-best">
+          🏆 <strong>${best.name}</strong> is the best model with ${isReg ? 'R² Score' : 'Accuracy'}: 
+          <strong style="color:var(--accent)">${isReg ? best.score : (best.score*100).toFixed(2)+'%'}</strong>
+          <span class="chip chip-green" style="margin-left:12px;">Best</span>
+        </div>
+      `;
+
+      // Accuracy bars
+      const barsHtml = results.models.map(m => {
+        const pct = isReg ? Math.max(0, m.score) * 100 : m.score * 100;
+        return `<div class="result-bar">
+          <div class="result-name">${m.name}</div>
+          <div style="flex:1;background:var(--surface2);border-radius:6px;height:26px;overflow:hidden;">
+            <div class="result-bar-fill" style="width:${pct.toFixed(1)}%">${pct.toFixed(1)}%</div>
+          </div>
+        </div>`;
+      }).join('');
+      document.getElementById('accuracy-bars').innerHTML = barsHtml;
+
+      // Chart
+      const ctx = document.getElementById('accuracy-chart').getContext('2d');
+      if (accChart) accChart.destroy();
+      accChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: results.models.map(m => m.name),
+          datasets: [{
+            label: isReg ? 'R² Score' : 'Accuracy',
+            data: results.models.map(m => isReg ? +(m.score*100).toFixed(2) : +(m.score*100).toFixed(2)),
+            backgroundColor: results.models.map((_, i) => i === 0 ? 'rgba(74,240,176,0.8)' : 'rgba(108,111,255,0.6)'),
+            borderColor: results.models.map((_, i) => i === 0 ? '#4af0b0' : '#6c6fff'),
+            borderWidth: 2, borderRadius: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { labels: { color: '#e8edf5' } } },
+          scales: {
+            y: { beginAtZero: true, max: 100, ticks: { color: '#7a8ba8', callback: v => v + '%' }, grid: { color: '#243048' } },
+            x: { ticks: { color: '#e8edf5' }, grid: { color: '#243048' } }
+          }
+        }
+      });
+
+      // Metrics table
+      const mKeys = isReg ? ['mse', 'rmse', 'r2'] : ['accuracy', 'precision', 'recall', 'f1'];
+      let tableHtml = '<div class="data-table-wrap"><table class="data-table"><thead><tr><th>Model</th>';
+      mKeys.forEach(k => tableHtml += `<th>${k.toUpperCase()}</th>`);
+      tableHtml += '</tr></thead><tbody>';
+      results.models.forEach((m, idx) => {
+        tableHtml += `<tr><td>${idx === 0 ? '🏆 ' : ''}${m.name}</td>`;
+        mKeys.forEach(k => {
+          const v = m.metrics[k];
+          const disp = (k === 'accuracy' || k === 'precision' || k === 'recall' || k === 'f1') ? `${(v*100).toFixed(2)}%` : v;
+          tableHtml += `<td style="${idx===0?'color:var(--accent);font-weight:700':''}"}>${disp ?? 'N/A'}</td>`;
+        });
+        tableHtml += '</tr>';
+      });
+      tableHtml += '</tbody></table></div>';
+      document.getElementById('metrics-table').innerHTML = tableHtml;
+
+      // Feature importance
+      const featModels = results.models.filter(m => m.featureImportance);
+      const featChartEl = document.getElementById('feature-chart');
+      const featFallback = document.getElementById('feature-fallback');
+      if (featModels.length) {
+        featChartEl.style.display = 'block';
+        featFallback.style.display = 'none';
+        const fctx = featChartEl.getContext('2d');
+        if (featChart) featChart.destroy();
+        featChart = new Chart(fctx, {
+          type: 'horizontalBar' in Chart ? 'horizontalBar' : 'bar',
+          data: {
+            labels: results.features,
+            datasets: featModels.map((m, i) => ({
+              label: m.name,
+              data: m.featureImportance,
+              backgroundColor: i === 0 ? 'rgba(74,240,176,0.7)' : 'rgba(108,111,255,0.6)',
+            }))
+          },
+          options: {
+            indexAxis: 'y',
+            responsive: true,
+            plugins: { legend: { labels: { color: '#e8edf5' } } },
+            scales: {
+              x: { ticks: { color: '#7a8ba8' }, grid: { color: '#243048' } },
+              y: { ticks: { color: '#e8edf5' }, grid: { color: '#243048' } }
+            }
+          }
+        });
+      } else {
+        featChartEl.style.display = 'none';
+        featFallback.style.display = 'block';
+      }
+    }
+
+    function downloadReport() {
+      if (!trainResults) return alert('Train models first');
+      downloadJSON((DataStore.load('filename') || 'data') + '_model_report.json', trainResults);
+    }
+
+    function downloadChartPng() {
+      const canvas = document.getElementById('accuracy-chart');
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = 'model_accuracy_chart.png';
+      a.click();
+    }
+
+    init();
+  </script>
+</body>
+</html>

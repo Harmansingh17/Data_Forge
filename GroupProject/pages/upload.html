@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Upload Data — DataForge</title>
+  <link rel="stylesheet" href="../css/main.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 16px;
+      padding: 64px 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.25s;
+      background: var(--surface);
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(74,240,176,0.05);
+    }
+    .drop-zone .icon { font-size: 3rem; margin-bottom: 16px; }
+    .drop-zone h3 { font-family: var(--font-head); font-size: 1.3rem; margin-bottom: 8px; }
+    .drop-zone p { color: var(--text-muted); font-size: 0.9rem; }
+    .drop-zone .formats { margin-top: 12px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+
+    .col-type-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+    }
+    .col-type-item {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .col-name { font-size: 0.88rem; font-weight: 600; }
+
+    #file-input { display: none; }
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <a href="../index.html" class="logo">⬡ DataForge</a>
+    <div class="nav-links">
+      <a href="../index.html">Home</a>
+      <a href="upload.html" class="active">Upload</a>
+      <a href="clean.html">Clean</a>
+      <a href="train.html">Train</a>
+      <a href="predict.html">Predict</a>
+    </div>
+  </nav>
+
+  <div class="page-container">
+    <div class="page-header">
+      <h1>📁 Upload Your Data</h1>
+      <p>Upload a CSV or Excel file to get started. We'll analyze your data automatically.</p>
+    </div>
+
+    <!-- DROP ZONE -->
+    <div id="drop-zone" class="drop-zone" onclick="document.getElementById('file-input').click()">
+      <div class="icon">📂</div>
+      <h3>Drag & Drop your file here</h3>
+      <p>or click to browse files</p>
+      <div class="formats">
+        <span class="chip chip-green">CSV</span>
+        <span class="chip chip-purple">XLSX</span>
+        <span class="chip chip-yellow">XLS</span>
+        <span class="chip chip-red">JSON</span>
+        <span class="chip chip-green">TSV</span>
+      </div>
+    </div>
+    <input type="file" id="file-input" accept=".csv,.xlsx,.xls,.json,.tsv"/>
+
+    <div id="status-area" style="margin-top:16px;"></div>
+
+    <!-- PREVIEW -->
+    <div id="preview-section" style="display:none;">
+      <div class="stats-row" id="stats-row"></div>
+
+      <div class="card">
+        <div class="card-title">📋 Data Preview</div>
+        <div id="preview-table"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🔍 Column Types Detected</div>
+        <div class="col-type-grid" id="col-types"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">⚠️ Missing Values Summary</div>
+        <div id="missing-summary"></div>
+      </div>
+
+      <div class="btn-group">
+        <a href="clean.html" class="btn btn-green">🧹 Proceed to Clean Data →</a>
+        <button class="btn btn-outline" onclick="downloadRaw()">⬇ Download Raw CSV</button>
+        <button class="btn btn-outline" onclick="resetUpload()">🔄 Upload Different File</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/storage.js"></script>
+  <script>
+    // Load SheetJS for Excel
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    document.head.appendChild(script);
+
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault(); dropZone.classList.remove('drag-over');
+      if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
+
+    function showStatus(msg, type = 'info') {
+      document.getElementById('status-area').innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+    }
+
+    function handleFile(file) {
+      const ext = file.name.split('.').pop().toLowerCase();
+      showStatus('⏳ Reading file...', 'info');
+
+      if (ext === 'csv' || ext === 'tsv') {
+        const reader = new FileReader();
+        reader.onload = e => processText(e.target.result, ext === 'tsv', file.name);
+        reader.readAsText(file);
+      } else if (['xlsx', 'xls'].includes(ext)) {
+        const reader = new FileReader();
+        reader.onload = e => {
+          if (!window.XLSX) { showStatus('⚠️ Excel library not loaded yet. Try again in a moment.', 'warning'); return; }
+          const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const csvText = XLSX.utils.sheet_to_csv(ws);
+          processText(csvText, false, file.name);
+        };
+        reader.readAsArrayBuffer(file);
+      } else if (ext === 'json') {
+        const reader = new FileReader();
+        reader.onload = e => {
+          try {
+            const arr = JSON.parse(e.target.result);
+            if (!Array.isArray(arr)) throw new Error('JSON must be an array of objects');
+            const headers = Object.keys(arr[0]);
+            processData(headers, arr, file.name);
+          } catch(err) { showStatus('❌ Invalid JSON: ' + err.message, 'error'); }
+        };
+        reader.readAsText(file);
+      } else {
+        showStatus('❌ Unsupported file type: .' + ext, 'error');
+      }
+    }
+
+    function processText(text, isTab, filename) {
+      if (isTab) text = text.split('\n').map(l => l.split('\t').join(',')).join('\n');
+      const { headers, rows } = parseCSV(text);
+      if (!headers.length) { showStatus('❌ Could not parse file. Make sure it has headers.', 'error'); return; }
+      processData(headers, rows, filename);
+    }
+
+    function processData(headers, rows, filename) {
+      DataStore.save('rawHeaders', headers);
+      DataStore.save('rawRows', rows);
+      DataStore.save('filename', filename.split('.')[0]);
+      showStatus(`✅ File loaded: ${rows.length} rows × ${headers.length} columns`, 'success');
+      showPreview(headers, rows);
+    }
+
+    function showPreview(headers, rows) {
+      const section = document.getElementById('preview-section');
+      section.style.display = 'block';
+
+      // Stats
+      const missing = countMissing(rows, headers);
+      const totalMissing = Object.values(missing).reduce((a, b) => a + b, 0);
+      document.getElementById('stats-row').innerHTML = `
+        <div class="stat-box"><div class="stat-value">${rows.length}</div><div class="stat-label">Total Rows</div></div>
+        <div class="stat-box"><div class="stat-value">${headers.length}</div><div class="stat-label">Columns</div></div>
+        <div class="stat-box"><div class="stat-value">${totalMissing}</div><div class="stat-label">Missing Values</div></div>
+        <div class="stat-box"><div class="stat-value">${new Set(rows.map(r => JSON.stringify(r))).size}</div><div class="stat-label">Unique Rows</div></div>
+      `;
+
+      // Table
+      renderTable(document.getElementById('preview-table'), headers, rows, 8);
+
+      // Column types
+      const types = detectTypes(headers, rows);
+      DataStore.save('colTypes', types);
+      let colHtml = '';
+      headers.forEach(h => {
+        const t = types[h];
+        colHtml += `<div class="col-type-item">
+          <span class="col-name">${h}</span>
+          <span class="chip ${t === 'numeric' ? 'chip-green' : 'chip-purple'}">${t}</span>
+        </div>`;
+      });
+      document.getElementById('col-types').innerHTML = colHtml;
+
+      // Missing
+      let missHtml = '<div class="col-type-grid">';
+      headers.forEach(h => {
+        const m = missing[h];
+        const pct = rows.length ? ((m / rows.length) * 100).toFixed(1) : 0;
+        missHtml += `<div class="col-type-item">
+          <span class="col-name">${h}</span>
+          <span class="chip ${m > 0 ? 'chip-red' : 'chip-green'}">${m} (${pct}%)</span>
+        </div>`;
+      });
+      missHtml += '</div>';
+      document.getElementById('missing-summary').innerHTML = missHtml;
+    }
+
+    function downloadRaw() {
+      const h = DataStore.load('rawHeaders');
+      const r = DataStore.load('rawRows');
+      if (!h || !r) return alert('No data loaded');
+      const fn = (DataStore.load('filename') || 'data') + '_raw.csv';
+      downloadFile(fn, toCSV(h, r));
+    }
+
+    function resetUpload() {
+      DataStore.clearAll();
+      document.getElementById('preview-section').style.display = 'none';
+      document.getElementById('status-area').innerHTML = '';
+      fileInput.value = '';
+    }
+
+    // Load previous if available
+    window.addEventListener('load', () => {
+      const h = DataStore.load('rawHeaders');
+      const r = DataStore.load('rawRows');
+      if (h && r) { showStatus('✅ Previous file still loaded. Upload a new one to replace it.', 'info'); showPreview(h, r); }
+    });
+  </script>
+</body>
+</html>

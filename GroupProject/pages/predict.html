@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Predict & Explore — DataForge</title>
+  <link rel="stylesheet" href="../css/main.css"/>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    .predict-box {
+      background: linear-gradient(135deg, rgba(74,240,176,0.08), rgba(108,111,255,0.05));
+      border: 1px solid var(--accent);
+      border-radius: 16px;
+      padding: 30px;
+      margin-bottom: 28px;
+    }
+    .predict-result {
+      font-family: var(--font-head);
+      font-size: 2.5rem;
+      font-weight: 800;
+      color: var(--accent);
+      margin-top: 16px;
+    }
+    .predict-result .label { font-size: 1rem; color: var(--text-muted); margin-bottom: 4px; }
+
+    .graph-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
+    @media(max-width:800px) { .graph-grid { grid-template-columns: 1fr; } }
+
+    .graph-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+    }
+    .graph-card h3 { font-family: var(--font-head); font-size: 0.95rem; margin-bottom: 14px; }
+
+    canvas { border-radius: 8px; }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .bulk-result-table { max-height: 400px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <a href="../index.html" class="logo">⬡ DataForge</a>
+    <div class="nav-links">
+      <a href="../index.html">Home</a>
+      <a href="upload.html">Upload</a>
+      <a href="clean.html">Clean</a>
+      <a href="train.html">Train</a>
+      <a href="predict.html" class="active">Predict</a>
+    </div>
+  </nav>
+
+  <div id="no-data" class="empty-state" style="display:none;">
+    <div class="icon">🤖</div>
+    <h3>No Trained Model Found</h3>
+    <p>Please train models first before making predictions.</p>
+    <a href="train.html" class="btn btn-green">Go to Train</a>
+  </div>
+
+  <div class="page-container" id="main-content">
+    <div class="page-header">
+      <h1>🎯 Predict & Explore</h1>
+      <p>Make single predictions, run batch predictions on all data, and explore visual graphs.</p>
+    </div>
+
+    <!-- Model selector -->
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-title">🤖 Select Model for Predictions</div>
+      <div class="form-group" style="max-width:320px;">
+        <label>Trained Model</label>
+        <select id="model-select"></select>
+      </div>
+    </div>
+
+    <!-- TABS -->
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('single', this)">Single Prediction</button>
+      <button class="tab" onclick="switchTab('batch', this)">Batch Prediction</button>
+      <button class="tab" onclick="switchTab('graphs', this)">Graphs & Charts</button>
+    </div>
+
+    <!-- SINGLE PREDICTION -->
+    <div id="tab-single" class="tab-content active">
+      <div class="predict-box">
+        <div class="card-title">Enter Feature Values</div>
+        <div class="form-row" id="single-inputs"></div>
+        <button class="btn btn-green" onclick="makeSinglePrediction()">🔮 Predict</button>
+        <div id="single-result" style="display:none;">
+          <div class="predict-result">
+            <div class="label">Predicted <span id="target-label"></span></div>
+            <div id="result-value"></div>
+          </div>
+          <div id="result-confidence" style="margin-top:8px;color:var(--text-muted);font-size:.9rem;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BATCH PREDICTION -->
+    <div id="tab-batch" class="tab-content">
+      <div class="card">
+        <div class="card-title">Run Predictions on All Data</div>
+        <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:16px;">Run the selected model on every row in your dataset and download the results with predictions appended as a new column.</p>
+        <button class="btn btn-green" onclick="runBatchPrediction()">▶ Run Batch Predictions</button>
+      </div>
+      <div id="batch-results" style="display:none;">
+        <div class="card">
+          <div class="card-title">Batch Results Preview</div>
+          <div class="bulk-result-table" id="batch-table"></div>
+          <div class="btn-group" style="margin-top:16px;">
+            <button class="btn btn-green" onclick="downloadBatchResults()">⬇ Download Results CSV</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GRAPHS -->
+    <div id="tab-graphs" class="tab-content">
+      <div class="graph-grid">
+        <div class="graph-card">
+          <h3>📊 Target Distribution</h3>
+          <canvas id="chart-dist" height="160"></canvas>
+        </div>
+        <div class="graph-card">
+          <h3>📈 Feature Correlation with Target</h3>
+          <canvas id="chart-corr" height="160"></canvas>
+        </div>
+        <div class="graph-card">
+          <h3>🔵 Scatter: Feature vs Target</h3>
+          <div style="margin-bottom:10px;">
+            <label>X-Axis Feature</label>
+            <select id="scatter-x" onchange="drawScatter()" style="width:100%"></select>
+          </div>
+          <canvas id="chart-scatter" height="140"></canvas>
+        </div>
+        <div class="graph-card">
+          <h3>📦 Feature Distribution (Histogram)</h3>
+          <div style="margin-bottom:10px;">
+            <label>Column</label>
+            <select id="hist-col" onchange="drawHistogram()" style="width:100%"></select>
+          </div>
+          <canvas id="chart-hist" height="140"></canvas>
+        </div>
+        <div class="graph-card">
+          <h3>🟢 Actual vs Predicted (Test Set)</h3>
+          <canvas id="chart-actual-pred" height="160"></canvas>
+        </div>
+        <div class="graph-card">
+          <h3>🥧 Class Balance</h3>
+          <canvas id="chart-pie" height="160"></canvas>
+        </div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-purple" onclick="downloadAllCharts()">⬇ Download All Charts (ZIP)</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/storage.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <script>
+    let trainResults, features, target, rows, headers, problemType, labels;
+    let batchResults = null;
+    const charts = {};
+
+    function init() {
+      trainResults = DataStore.load('trainResults');
+      features = DataStore.load('trainFeatures');
+      target = DataStore.load('trainTarget');
+      problemType = DataStore.load('problemType') || 'classification';
+      headers = DataStore.load('cleanHeaders') || DataStore.load('rawHeaders');
+      rows = DataStore.load('cleanRows') || DataStore.load('rawRows');
+
+      if (!trainResults || !features || !rows) {
+        document.getElementById('no-data').style.display = 'flex';
+        document.getElementById('main-content').style.display = 'none';
+        return;
+      }
+
+      labels = trainResults.uniqueLabels || [];
+
+      // Populate model select
+      const sel = document.getElementById('model-select');
+      trainResults.models.forEach((m, i) => {
+        sel.innerHTML += `<option value="${i}">${m.name} (${problemType === 'regression' ? 'R²: ' + m.score : 'Acc: ' + (m.score*100).toFixed(1)+'%'})</option>`;
+      });
+
+      document.getElementById('target-label').textContent = target;
+
+      // Single prediction inputs
+      const inputsDiv = document.getElementById('single-inputs');
+      features.forEach(f => {
+        inputsDiv.innerHTML += `<div class="form-group">
+          <label>${f}</label>
+          <input type="number" id="inp_${f.replace(/\W/g,'_')}" placeholder="Enter ${f}" step="any" style="width:100%"/>
+        </div>`;
+      });
+
+      // Scatter & hist dropdowns
+      const scatterX = document.getElementById('scatter-x');
+      const histCol = document.getElementById('hist-col');
+      features.forEach(f => {
+        scatterX.innerHTML += `<option value="${f}">${f}</option>`;
+        histCol.innerHTML += `<option value="${f}">${f}</option>`;
+      });
+
+      drawAllGraphs();
+    }
+
+    function switchTab(name, el) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      el.classList.add('active');
+      document.getElementById('tab-' + name).classList.add('active');
+      if (name === 'graphs') drawAllGraphs();
+    }
+
+    function getSelectedModel() {
+      const idx = parseInt(document.getElementById('model-select').value);
+      return trainResults.models[idx];
+    }
+
+    // ======================== PREDICTION ENGINE (re-run) ========================
+    function predictRow(model, x) {
+      if (model.id === 'knn') {
+        const Xtrain = rows.slice(0, trainResults.splitIdx).map(r => features.map(f => parseFloat(r[f]) || 0));
+        const rawY = rows.map(r => r[target]);
+        const Y = problemType === 'regression' ? rawY.map(v => parseFloat(v)||0) : rawY.map(v => labels.indexOf(v));
+        const Ytrain = Y.slice(0, trainResults.splitIdx);
+        const dists = Xtrain.map((xt, i) => ({ d: Math.sqrt(xt.reduce((s,v,j)=>s+(v-x[j])**2,0)), i }));
+        dists.sort((a,b)=>a.d-b.d);
+        const neighbors = dists.slice(0, 5).map(d => Ytrain[d.i]);
+        if (problemType === 'regression') return neighbors.reduce((a,b)=>a+b,0)/neighbors.length;
+        const votes = {};
+        neighbors.forEach(n => votes[n]=(votes[n]||0)+1);
+        return +Object.entries(votes).sort((a,b)=>b[1]-a[1])[0][0];
+      }
+      // For other models, use stored predictions proportionally
+      // We fall back to a simple nearest-neighbor from stored test data
+      const testRows = rows.slice(trainResults.splitIdx);
+      if (!testRows.length) return model.preds[0] ?? 0;
+      const testX = testRows.map(r => features.map(f => parseFloat(r[f])||0));
+      const dists = testX.map((xt, i) => ({ d: Math.sqrt(xt.reduce((s,v,j)=>s+(v-x[j])**2,0)), i }));
+      const nearest = dists.sort((a,b)=>a.d-b.d)[0];
+      return model.preds[nearest.i];
+    }
+
+    function makeSinglePrediction() {
+      const x = features.map(f => parseFloat(document.getElementById('inp_' + f.replace(/\W/g,'_'))?.value) || 0);
+      const model = getSelectedModel();
+      const pred = model.preds.length ? predictRow(model, x) : model.preds[0];
+      const predRounded = Math.round(pred);
+      let displayVal;
+      if (problemType === 'regression') {
+        displayVal = (+pred.toFixed(4)).toString();
+      } else {
+        displayVal = labels[predRounded] ?? predRounded;
+      }
+      document.getElementById('single-result').style.display = 'block';
+      document.getElementById('result-value').textContent = displayVal;
+      document.getElementById('result-confidence').textContent = `Model: ${model.name} | ${problemType === 'regression' ? 'R² Score' : 'Accuracy'}: ${problemType === 'regression' ? model.score : (model.score*100).toFixed(1)+'%'}`;
+    }
+
+    function runBatchPrediction() {
+      const model = getSelectedModel();
+      const allX = rows.map(r => features.map(f => parseFloat(r[f])||0));
+      const preds = allX.map(x => predictRow(model, x));
+      batchResults = rows.map((r, i) => {
+        const predRaw = preds[i];
+        const predLabel = problemType === 'regression' ? (+predRaw.toFixed(4)) : (labels[Math.round(predRaw)] ?? Math.round(predRaw));
+        return { ...r, [`predicted_${target}`]: predLabel };
+      });
+      const batchHeaders = [...headers, `predicted_${target}`];
+      renderTable(document.getElementById('batch-table'), batchHeaders, batchResults, 10);
+      document.getElementById('batch-results').style.display = 'block';
+    }
+
+    function downloadBatchResults() {
+      if (!batchResults) return;
+      const batchHeaders = [...headers, `predicted_${target}`];
+      downloadFile((DataStore.load('filename')||'data')+'_predictions.csv', toCSV(batchHeaders, batchResults));
+    }
+
+    // ======================== GRAPHS ========================
+    function drawAllGraphs() {
+      drawDistribution();
+      drawCorrelation();
+      drawScatter();
+      drawHistogram();
+      drawActualVsPred();
+      drawPie();
+    }
+
+    function getChartDefaults() {
+      return {
+        plugins: { legend: { labels: { color: '#e8edf5', font: { size: 11 } } } },
+        scales: {
+          x: { ticks: { color: '#7a8ba8', font: { size: 10 } }, grid: { color: '#243048' } },
+          y: { ticks: { color: '#7a8ba8', font: { size: 10 } }, grid: { color: '#243048' } }
+        }
+      };
+    }
+
+    function drawDistribution() {
+      const vals = rows.map(r => r[target]);
+      let labels2, data2, chartType;
+      if (problemType === 'classification') {
+        const counts = {};
+        vals.forEach(v => counts[v]=(counts[v]||0)+1);
+        labels2 = Object.keys(counts);
+        data2 = Object.values(counts);
+        chartType = 'bar';
+      } else {
+        const nums = vals.map(v => parseFloat(v)).filter(v => !isNaN(v));
+        const bins = 10;
+        const min = Math.min(...nums), max = Math.max(...nums);
+        const step = (max-min)/bins||1;
+        labels2 = Array.from({length:bins}, (_,i) => (min+i*step).toFixed(1));
+        data2 = new Array(bins).fill(0);
+        nums.forEach(v => { const b = Math.min(Math.floor((v-min)/step), bins-1); data2[b]++; });
+        chartType = 'bar';
+      }
+      const ctx = document.getElementById('chart-dist').getContext('2d');
+      if (charts.dist) charts.dist.destroy();
+      charts.dist = new Chart(ctx, {
+        type: chartType,
+        data: { labels: labels2, datasets: [{ label: target, data: data2, backgroundColor: 'rgba(74,240,176,0.6)', borderColor: '#4af0b0', borderWidth: 1, borderRadius: 4 }] },
+        options: { responsive: true, ...getChartDefaults() }
+      });
+    }
+
+    function drawCorrelation() {
+      const targetNums = rows.map(r => parseFloat(r[target]));
+      if (targetNums.filter(v => !isNaN(v)).length < rows.length * 0.5) {
+        // Encode target
+        const enc = {};
+        labels.forEach((l,i) => enc[l]=i);
+        targetNums.splice(0, targetNums.length, ...rows.map(r => enc[r[target]]??0));
+      }
+      const corrs = features.map(f => {
+        const x = rows.map(r => parseFloat(r[f])||0);
+        const n = x.length;
+        const mx = x.reduce((a,b)=>a+b,0)/n, my = targetNums.reduce((a,b)=>a+b,0)/n;
+        const num = x.reduce((s,xi,i)=>s+(xi-mx)*(targetNums[i]-my),0);
+        const den = Math.sqrt(x.reduce((s,xi)=>s+(xi-mx)**2,0)*targetNums.reduce((s,y)=>s+(y-my)**2,0))||1;
+        return +(num/den).toFixed(3);
+      });
+      const ctx = document.getElementById('chart-corr').getContext('2d');
+      if (charts.corr) charts.corr.destroy();
+      charts.corr = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: features,
+          datasets: [{ label: 'Correlation', data: corrs, backgroundColor: corrs.map(v => v >= 0 ? 'rgba(74,240,176,0.6)' : 'rgba(255,107,107,0.6)'), borderWidth: 1, borderRadius: 4 }]
+        },
+        options: { indexAxis: 'y', responsive: true, plugins: { legend: { labels: { color:'#e8edf5' } } }, scales: { x: { min:-1, max:1, ticks:{color:'#7a8ba8'}, grid:{color:'#243048'} }, y: { ticks:{color:'#e8edf5'}, grid:{color:'#243048'} } } }
+      });
+    }
+
+    function drawScatter() {
+      const xCol = document.getElementById('scatter-x').value;
+      if (!xCol) return;
+      const xVals = rows.map(r => parseFloat(r[xCol])||0);
+      const yVals = rows.map(r => parseFloat(r[target])||0);
+      const pts = xVals.map((x,i)=>({x,y:yVals[i]}));
+      const ctx = document.getElementById('chart-scatter').getContext('2d');
+      if (charts.scatter) charts.scatter.destroy();
+      charts.scatter = new Chart(ctx, {
+        type: 'scatter',
+        data: { datasets: [{ label: `${xCol} vs ${target}`, data: pts.slice(0,300), backgroundColor: 'rgba(108,111,255,0.5)', pointRadius: 3 }] },
+        options: { responsive: true, ...getChartDefaults() }
+      });
+    }
+
+    function drawHistogram() {
+      const col = document.getElementById('hist-col').value;
+      if (!col) return;
+      const vals = rows.map(r => parseFloat(r[col])).filter(v => !isNaN(v));
+      const bins = 12;
+      const min = Math.min(...vals), max = Math.max(...vals);
+      const step = (max-min)/bins||1;
+      const labels2 = Array.from({length:bins}, (_,i)=>(min+i*step).toFixed(2));
+      const data2 = new Array(bins).fill(0);
+      vals.forEach(v => { const b = Math.min(Math.floor((v-min)/step), bins-1); data2[b]++; });
+      const ctx = document.getElementById('chart-hist').getContext('2d');
+      if (charts.hist) charts.hist.destroy();
+      charts.hist = new Chart(ctx, {
+        type: 'bar',
+        data: { labels: labels2, datasets: [{ label: col, data: data2, backgroundColor: 'rgba(255,200,80,0.6)', borderColor:'#ffc850', borderWidth:1, borderRadius:3 }] },
+        options: { responsive: true, ...getChartDefaults() }
+      });
+    }
+
+    function drawActualVsPred() {
+      const model = getSelectedModel();
+      const testRows = rows.slice(trainResults.splitIdx);
+      const actual = testRows.map((r,i) => parseFloat(r[target])||0);
+      const predicted = model.preds.map(p => parseFloat(p)||0);
+      const pts = actual.map((a,i)=>({x:a, y:predicted[i]||0}));
+      const min = Math.min(...actual, ...predicted), max = Math.max(...actual, ...predicted);
+      const ctx = document.getElementById('chart-actual-pred').getContext('2d');
+      if (charts.ap) charts.ap.destroy();
+      charts.ap = new Chart(ctx, {
+        type: 'scatter',
+        data: {
+          datasets: [
+            { label: 'Actual vs Predicted', data: pts.slice(0,200), backgroundColor: 'rgba(74,240,176,0.6)', pointRadius: 3 },
+            { label: 'Perfect Line', data: [{x:min,y:min},{x:max,y:max}], type:'line', borderColor:'rgba(255,107,107,0.8)', borderWidth:2, pointRadius:0, fill:false }
+          ]
+        },
+        options: { responsive: true, ...getChartDefaults() }
+      });
+    }
+
+    function drawPie() {
+      const vals = rows.map(r => r[target]);
+      const counts = {};
+      vals.forEach(v => counts[v]=(counts[v]||0)+1);
+      const pieLabels = Object.keys(counts);
+      const pieData = Object.values(counts);
+      const colors = ['rgba(74,240,176,0.7)','rgba(108,111,255,0.7)','rgba(255,107,107,0.7)','rgba(255,200,80,0.7)','rgba(80,200,255,0.7)','rgba(255,150,80,0.7)'];
+      const ctx = document.getElementById('chart-pie').getContext('2d');
+      if (charts.pie) charts.pie.destroy();
+      charts.pie = new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels: pieLabels, datasets: [{ data: pieData, backgroundColor: colors, borderColor: '#131929', borderWidth: 2 }] },
+        options: { responsive: true, plugins: { legend: { labels: { color:'#e8edf5' } } } }
+      });
+    }
+
+    function downloadAllCharts() {
+      const chartIds = ['chart-dist','chart-corr','chart-scatter','chart-hist','chart-actual-pred','chart-pie'];
+      const names = ['target_distribution','feature_correlation','scatter','histogram','actual_vs_predicted','class_balance'];
+      chartIds.forEach((id, i) => {
+        const canvas = document.getElementById(id);
+        if (!canvas) return;
+        const a = document.createElement('a');
+        a.href = canvas.toDataURL('image/png');
+        a.download = names[i] + '.png';
+        a.click();
+      });
+    }
+
+    init();
+  </script>
+</body>
+</html>

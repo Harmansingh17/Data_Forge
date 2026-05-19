@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Clean Data — DataForge</title>
+  <link rel="stylesheet" href="../css/main.css"/>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    .ops-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 20px;
+    }
+    .op-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 22px;
+    }
+    .op-card h3 { font-family: var(--font-head); font-size: 1rem; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+    .op-card p { color: var(--text-muted); font-size: 0.82rem; margin-bottom: 14px; line-height: 1.5; }
+    .changelog { max-height: 200px; overflow-y: auto; }
+    .log-item {
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.83rem;
+      margin-bottom: 6px;
+      background: var(--surface2);
+      border-left: 3px solid var(--accent);
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <a href="../index.html" class="logo">⬡ DataForge</a>
+    <div class="nav-links">
+      <a href="../index.html">Home</a>
+      <a href="upload.html">Upload</a>
+      <a href="clean.html" class="active">Clean</a>
+      <a href="train.html">Train</a>
+      <a href="predict.html">Predict</a>
+    </div>
+  </nav>
+
+  <div class="page-container">
+    <div id="no-data" class="empty-state" style="display:none;">
+      <div class="icon">📭</div>
+      <h3>No Data Loaded</h3>
+      <p>Please upload a file first before cleaning.</p>
+      <a href="upload.html" class="btn btn-green">Go to Upload</a>
+    </div>
+
+    <div id="main-content">
+      <div class="page-header">
+        <h1>🧹 Clean & Preprocess</h1>
+        <p>Apply transformations to prepare your data for training. Each step is logged and reversible.</p>
+      </div>
+
+      <div class="stats-row" id="stats-row"></div>
+
+      <!-- OPERATIONS -->
+      <div class="ops-grid" style="margin-bottom:28px;">
+
+        <!-- Handle Missing -->
+        <div class="op-card">
+          <h3>🕳️ Handle Missing Values</h3>
+          <p>Fill in or remove rows with missing/empty values in any column.</p>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label>Column</label>
+            <select id="miss-col"></select>
+          </div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label>Strategy</label>
+            <select id="miss-strategy">
+              <option value="drop">Drop rows with missing</option>
+              <option value="mean">Fill with Mean (numeric)</option>
+              <option value="median">Fill with Median (numeric)</option>
+              <option value="mode">Fill with Mode (most frequent)</option>
+              <option value="zero">Fill with 0</option>
+              <option value="custom">Fill with custom value</option>
+            </select>
+          </div>
+          <input type="text" id="miss-custom" placeholder="Custom fill value" style="width:100%;margin-bottom:12px;display:none;"/>
+          <button class="btn btn-green" onclick="handleMissing()">Apply</button>
+        </div>
+
+        <!-- Remove Duplicates -->
+        <div class="op-card">
+          <h3>♻️ Remove Duplicates</h3>
+          <p>Find and remove duplicate rows from the dataset.</p>
+          <div id="dup-info" style="color:var(--text-muted);font-size:.88rem;margin-bottom:14px;"></div>
+          <button class="btn btn-green" onclick="removeDuplicates()">Remove Duplicates</button>
+        </div>
+
+        <!-- Drop Column -->
+        <div class="op-card">
+          <h3>🗑️ Drop Column</h3>
+          <p>Remove a column entirely from the dataset.</p>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label>Column to drop</label>
+            <select id="drop-col"></select>
+          </div>
+          <button class="btn btn-red" onclick="dropColumn()">Drop Column</button>
+        </div>
+
+        <!-- Rename Column -->
+        <div class="op-card">
+          <h3>✏️ Rename Column</h3>
+          <p>Rename a column header to something more meaningful.</p>
+          <div class="form-group" style="margin-bottom:10px;">
+            <label>Column</label>
+            <select id="rename-col"></select>
+          </div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label>New name</label>
+            <input type="text" id="rename-val" placeholder="New column name" style="width:100%"/>
+          </div>
+          <button class="btn btn-purple" onclick="renameColumn()">Rename</button>
+        </div>
+
+        <!-- Encode Categorical -->
+        <div class="op-card">
+          <h3>🔢 Encode Categorical</h3>
+          <p>Convert text categories to numbers (Label Encoding). Required before training ML models.</p>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label>Column</label>
+            <select id="encode-col"></select>
+          </div>
+          <button class="btn btn-purple" onclick="encodeColumn()">Label Encode</button>
+        </div>
+
+        <!-- Normalize -->
+        <div class="op-card">
+          <h3>📏 Normalize / Scale</h3>
+          <p>Scale numeric values to 0–1 range (Min-Max) or standardize (Z-score).</p>
+          <div class="form-group" style="margin-bottom:10px;">
+            <label>Column</label>
+            <select id="scale-col"></select>
+          </div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label>Method</label>
+            <select id="scale-method">
+              <option value="minmax">Min-Max (0 to 1)</option>
+              <option value="zscore">Z-Score (mean=0, std=1)</option>
+            </select>
+          </div>
+          <button class="btn btn-purple" onclick="scaleColumn()">Scale</button>
+        </div>
+
+        <!-- Filter Rows -->
+        <div class="op-card">
+          <h3>🔍 Filter Rows</h3>
+          <p>Keep only rows where a column meets a condition.</p>
+          <div class="form-group" style="margin-bottom:10px;">
+            <label>Column</label>
+            <select id="filter-col"></select>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+            <div class="form-group">
+              <label>Operator</label>
+              <select id="filter-op">
+                <option value="eq">= equals</option>
+                <option value="neq">≠ not equals</option>
+                <option value="gt">> greater than</option>
+                <option value="lt">< less than</option>
+                <option value="gte">≥ greater or equal</option>
+                <option value="lte">≤ less or equal</option>
+                <option value="contains">contains text</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Value</label>
+              <input type="text" id="filter-val" placeholder="Value" style="width:100%"/>
+            </div>
+          </div>
+          <button class="btn btn-green" onclick="filterRows()">Filter</button>
+        </div>
+
+        <!-- Trim Whitespace -->
+        <div class="op-card">
+          <h3>✂️ Trim & Fix Text</h3>
+          <p>Remove leading/trailing spaces and fix text in a column.</p>
+          <div class="form-group" style="margin-bottom:10px;">
+            <label>Column</label>
+            <select id="trim-col"></select>
+          </div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label>Operation</label>
+            <select id="trim-op">
+              <option value="trim">Trim whitespace</option>
+              <option value="lower">Lowercase</option>
+              <option value="upper">Uppercase</option>
+              <option value="title">Title Case</option>
+            </select>
+          </div>
+          <button class="btn btn-purple" onclick="trimColumn()">Apply</button>
+        </div>
+
+      </div>
+
+      <!-- CHANGE LOG -->
+      <div class="card">
+        <div class="card-title">📝 Change Log <span id="log-count" class="chip chip-green" style="margin-left:8px;">0 changes</span></div>
+        <div id="changelog" class="changelog">
+          <p style="color:var(--text-muted);font-size:.88rem;">No changes yet. Apply operations above.</p>
+        </div>
+      </div>
+
+      <!-- PREVIEW -->
+      <div class="card">
+        <div class="card-title">📋 Current Data Preview</div>
+        <div id="preview-table"></div>
+      </div>
+
+      <!-- ACTIONS -->
+      <div class="btn-group">
+        <a href="train.html" class="btn btn-green">🤖 Proceed to Train →</a>
+        <button class="btn btn-purple" onclick="downloadClean()">⬇ Download Cleaned CSV</button>
+        <button class="btn btn-outline" onclick="undoLast()">↩ Undo Last Step</button>
+        <button class="btn btn-outline" onclick="resetData()">🔄 Reset to Original</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/storage.js"></script>
+  <script>
+    let headers = [], rows = [], changelog = [];
+    const history = [];
+
+    document.getElementById('miss-strategy').addEventListener('change', function() {
+      document.getElementById('miss-custom').style.display = this.value === 'custom' ? 'block' : 'none';
+    });
+
+    function init() {
+      const rawH = DataStore.load('rawHeaders');
+      const rawR = DataStore.load('rawRows');
+      if (!rawH || !rawR) {
+        document.getElementById('no-data').style.display = 'flex';
+        document.getElementById('main-content').style.display = 'none';
+        return;
+      }
+      headers = DataStore.load('cleanHeaders') || JSON.parse(JSON.stringify(rawH));
+      rows = DataStore.load('cleanRows') || JSON.parse(JSON.stringify(rawR));
+      changelog = DataStore.load('changelog') || [];
+      refreshAll();
+    }
+
+    function refreshAll() {
+      populateSelects();
+      updateStats();
+      updatePreview();
+      renderChangelog();
+      updateDupInfo();
+    }
+
+    function populateSelects() {
+      const ids = ['miss-col','drop-col','rename-col','encode-col','scale-col','filter-col','trim-col'];
+      ids.forEach(id => {
+        const s = document.getElementById(id);
+        if (!s) return;
+        s.innerHTML = headers.map(h => `<option value="${h}">${h}</option>`).join('');
+      });
+    }
+
+    function updateStats() {
+      const missing = countMissing(rows, headers);
+      const totalMiss = Object.values(missing).reduce((a, b) => a + b, 0);
+      const dups = rows.length - new Set(rows.map(r => JSON.stringify(r))).size;
+      document.getElementById('stats-row').innerHTML = `
+        <div class="stat-box"><div class="stat-value">${rows.length}</div><div class="stat-label">Rows</div></div>
+        <div class="stat-box"><div class="stat-value">${headers.length}</div><div class="stat-label">Columns</div></div>
+        <div class="stat-box"><div class="stat-value" style="color:${totalMiss>0?'var(--accent3)':'var(--accent)'}">${totalMiss}</div><div class="stat-label">Missing</div></div>
+        <div class="stat-box"><div class="stat-value" style="color:${dups>0?'var(--accent3)':'var(--accent)'}">${dups}</div><div class="stat-label">Duplicates</div></div>
+        <div class="stat-box"><div class="stat-value">${changelog.length}</div><div class="stat-label">Changes Made</div></div>
+      `;
+    }
+
+    function updatePreview() {
+      renderTable(document.getElementById('preview-table'), headers, rows, 8);
+    }
+
+    function updateDupInfo() {
+      const dups = rows.length - new Set(rows.map(r => JSON.stringify(r))).size;
+      document.getElementById('dup-info').textContent = `Found ${dups} duplicate row(s) out of ${rows.length} total.`;
+    }
+
+    function saveState(description) {
+      history.push({ headers: JSON.parse(JSON.stringify(headers)), rows: JSON.parse(JSON.stringify(rows)) });
+      changelog.unshift({ time: new Date().toLocaleTimeString(), text: description });
+      if (changelog.length > 50) changelog.pop();
+      DataStore.save('cleanHeaders', headers);
+      DataStore.save('cleanRows', rows);
+      DataStore.save('changelog', changelog);
+      renderChangelog();
+      updateStats();
+      updatePreview();
+      updateDupInfo();
+    }
+
+    function renderChangelog() {
+      const el = document.getElementById('changelog');
+      document.getElementById('log-count').textContent = `${changelog.length} change${changelog.length !== 1 ? 's' : ''}`;
+      if (!changelog.length) { el.innerHTML = '<p style="color:var(--text-muted);font-size:.88rem;">No changes yet.</p>'; return; }
+      el.innerHTML = changelog.map(c => `<div class="log-item">⏱ ${c.time} — ${c.text}</div>`).join('');
+    }
+
+    function handleMissing() {
+      const col = document.getElementById('miss-col').value;
+      const strat = document.getElementById('miss-strategy').value;
+      const custom = document.getElementById('miss-custom').value;
+      const missing = rows.filter(r => r[col] === '' || r[col] === null || r[col] === undefined);
+      if (!missing.length) { alert('No missing values in this column!'); return; }
+
+      if (strat === 'drop') {
+        const before = rows.length;
+        rows = rows.filter(r => r[col] !== '' && r[col] !== null && r[col] !== undefined);
+        saveState(`Dropped ${before - rows.length} rows with missing "${col}"`);
+      } else {
+        let fillVal;
+        if (strat === 'mean' || strat === 'median') {
+          const vals = rows.map(r => parseFloat(r[col])).filter(v => !isNaN(v));
+          if (!vals.length) { alert('No numeric values found in column'); return; }
+          if (strat === 'mean') fillVal = (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(4);
+          else { vals.sort((a,b)=>a-b); fillVal = vals[Math.floor(vals.length/2)]; }
+        } else if (strat === 'mode') {
+          const freq = {};
+          rows.forEach(r => { if (r[col]) freq[r[col]] = (freq[r[col]]||0)+1; });
+          fillVal = Object.entries(freq).sort((a,b)=>b[1]-a[1])[0]?.[0] || '';
+        } else if (strat === 'zero') fillVal = '0';
+        else fillVal = custom;
+
+        rows.forEach(r => { if (r[col] === '' || r[col] === null || r[col] === undefined) r[col] = fillVal; });
+        saveState(`Filled ${missing.length} missing values in "${col}" with ${strat === 'custom' ? `"${fillVal}"` : strat} (${fillVal})`);
+      }
+    }
+
+    function removeDuplicates() {
+      const seen = new Set();
+      const before = rows.length;
+      rows = rows.filter(r => {
+        const key = JSON.stringify(r);
+        if (seen.has(key)) return false;
+        seen.add(key); return true;
+      });
+      const removed = before - rows.length;
+      if (!removed) { alert('No duplicates found!'); return; }
+      saveState(`Removed ${removed} duplicate rows`);
+    }
+
+    function dropColumn() {
+      const col = document.getElementById('drop-col').value;
+      if (!confirm(`Drop column "${col}"? This cannot be undone easily.`)) return;
+      headers = headers.filter(h => h !== col);
+      rows = rows.map(r => { const n = {...r}; delete n[col]; return n; });
+      saveState(`Dropped column "${col}"`);
+      populateSelects();
+    }
+
+    function renameColumn() {
+      const col = document.getElementById('rename-col').value;
+      const newName = document.getElementById('rename-val').value.trim();
+      if (!newName) { alert('Enter a new name'); return; }
+      if (headers.includes(newName)) { alert('That name already exists'); return; }
+      headers = headers.map(h => h === col ? newName : h);
+      rows = rows.map(r => { const n = {...r}; n[newName] = n[col]; delete n[col]; return n; });
+      saveState(`Renamed column "${col}" → "${newName}"`);
+      populateSelects();
+    }
+
+    function encodeColumn() {
+      const col = document.getElementById('encode-col').value;
+      const unique = [...new Set(rows.map(r => r[col]))].sort();
+      const map = {};
+      unique.forEach((v, i) => map[v] = i);
+      rows = rows.map(r => ({...r, [col]: map[r[col]] ?? r[col]}));
+      saveState(`Label encoded "${col}": ${unique.map((v,i) => `${v}→${i}`).join(', ')}`);
+    }
+
+    function scaleColumn() {
+      const col = document.getElementById('scale-col').value;
+      const method = document.getElementById('scale-method').value;
+      const vals = rows.map(r => parseFloat(r[col])).filter(v => !isNaN(v));
+      if (!vals.length) { alert('No numeric values in this column'); return; }
+
+      if (method === 'minmax') {
+        const min = Math.min(...vals), max = Math.max(...vals);
+        const range = max - min || 1;
+        rows = rows.map(r => {
+          const v = parseFloat(r[col]);
+          return {...r, [col]: isNaN(v) ? r[col] : +((v - min) / range).toFixed(6)};
+        });
+        saveState(`Min-Max scaled "${col}" (range: ${min} to ${max})`);
+      } else {
+        const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
+        const std = Math.sqrt(vals.reduce((s,v)=>s+(v-mean)**2,0)/vals.length) || 1;
+        rows = rows.map(r => {
+          const v = parseFloat(r[col]);
+          return {...r, [col]: isNaN(v) ? r[col] : +((v - mean) / std).toFixed(6)};
+        });
+        saveState(`Z-score standardized "${col}" (mean=${mean.toFixed(2)}, std=${std.toFixed(2)})`);
+      }
+    }
+
+    function filterRows() {
+      const col = document.getElementById('filter-col').value;
+      const op = document.getElementById('filter-op').value;
+      const val = document.getElementById('filter-val').value;
+      const before = rows.length;
+      rows = rows.filter(r => {
+        const cv = r[col];
+        const n = parseFloat(cv), nv = parseFloat(val);
+        switch(op) {
+          case 'eq': return String(cv) === String(val);
+          case 'neq': return String(cv) !== String(val);
+          case 'gt': return !isNaN(n) && !isNaN(nv) && n > nv;
+          case 'lt': return !isNaN(n) && !isNaN(nv) && n < nv;
+          case 'gte': return !isNaN(n) && !isNaN(nv) && n >= nv;
+          case 'lte': return !isNaN(n) && !isNaN(nv) && n <= nv;
+          case 'contains': return String(cv).toLowerCase().includes(val.toLowerCase());
+          default: return true;
+        }
+      });
+      saveState(`Filtered "${col}" ${op} "${val}": ${before - rows.length} rows removed, ${rows.length} kept`);
+    }
+
+    function trimColumn() {
+      const col = document.getElementById('trim-col').value;
+      const op = document.getElementById('trim-op').value;
+      rows = rows.map(r => {
+        let v = String(r[col] ?? '');
+        switch(op) {
+          case 'trim': v = v.trim(); break;
+          case 'lower': v = v.toLowerCase(); break;
+          case 'upper': v = v.toUpperCase(); break;
+          case 'title': v = v.replace(/\w\S*/g, t => t[0].toUpperCase() + t.slice(1).toLowerCase()); break;
+        }
+        return {...r, [col]: v};
+      });
+      saveState(`Applied ${op} to column "${col}"`);
+    }
+
+    function undoLast() {
+      if (!history.length) { alert('Nothing to undo'); return; }
+      const prev = history.pop();
+      headers = prev.headers;
+      rows = prev.rows;
+      changelog.shift();
+      DataStore.save('cleanHeaders', headers);
+      DataStore.save('cleanRows', rows);
+      DataStore.save('changelog', changelog);
+      refreshAll();
+    }
+
+    function resetData() {
+      if (!confirm('Reset to original uploaded data? All cleaning steps will be lost.')) return;
+      headers = JSON.parse(JSON.stringify(DataStore.load('rawHeaders')));
+      rows = JSON.parse(JSON.stringify(DataStore.load('rawRows')));
+      changelog = [];
+      history.length = 0;
+      DataStore.save('cleanHeaders', headers);
+      DataStore.save('cleanRows', rows);
+      DataStore.save('changelog', []);
+      refreshAll();
+    }
+
+    function downloadClean() {
+      if (!rows.length) return;
+      const fn = (DataStore.load('filename') || 'data') + '_cleaned.csv';
+      downloadFile(fn, toCSV(headers, rows));
+    }
+
+    init();
+  </script>
+</body>
+</html>
